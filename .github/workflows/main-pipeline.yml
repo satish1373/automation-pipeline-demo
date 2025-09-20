@@ -91,6 +91,8 @@ jobs:
         name: build-files
         path: build/
     - name: Deploy to Netlify Preview
+      env:
+        NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
       run: |
         npx netlify-cli deploy --dir=build --json > deploy-output.json
         echo "NETLIFY_URL=$(cat deploy-output.json | jq -r '.deploy_url')" >> $GITHUB_ENV
@@ -102,7 +104,7 @@ jobs:
             issue_number: context.issue.number,
             owner: context.repo.owner,
             repo: context.repo.repo,
-            body: ` Preview deployment ready!
+            body: `🚀 Preview deployment ready!
             
             **Preview URL:** ${{ env.NETLIFY_URL }}
             **Context Analysis:** Available in artifacts
@@ -121,9 +123,11 @@ jobs:
         name: build-files
         path: build/
     - name: Deploy to Production
+      env:
+        NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
       run: |
         npx netlify-cli deploy --prod --dir=build
-        echo " Production deployment completed!"
+        echo "🚀 Production deployment completed!"
     - name: Update Jira ticket
       if: needs.extract-jira-info.outputs.has-ticket == 'true'
       run: |
