@@ -1,0 +1,131 @@
+name: Enhanced CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+env:
+  NODE_VERSION: '18.x'
+  PYTHON_VERSION: '3.11'
+
+jobs:
+  extract-jira-info:
+    runs-on: ubuntu-latest
+    outputs:
+      jira-ticket: ${{ steps.jira.outputs.ticket }}
+      has-ticket: ${{ steps.jira.outputs.has-ticket }}
+    steps:
+    - name: Extract Jira ticket
+      id: jira
+      run: |
+        BRANCH=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}
+        COMMIT_MSG="${{ github.event.head_commit.message }}"
+        TICKET=$(echo "$BRANCH $COMMIT_MSG" | grep -o '[A-Z]\+-[0-9]\+' | head -1 || echo "")
+        echo "ticket=$TICKET" >> $GITHUB_OUTPUT
+        echo "has-ticket=$([ -n "$TICKET" ] && echo "true" || echo "false")" >> $GITHUB_OUTPUT
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run lint:check
+    - run: npm run type-check
+    - run: npm run test:coverage
+    - name: Upload coverage
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage/lcov.info
+
+  context-analysis:
+    runs-on: ubuntu-latest
+    needs: extract-jira-info
+    if: github.event_name == 'pull_request'
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+    - name: Install Python dependencies
+      run: |
+        pip install -r requirements.txt
+    - name: Run context analysis
+      run: |
+        python application_context_manager.py
+    - name: Upload context analysis
+      uses: actions/upload-artifact@v3
+      with:
+        name: context-analysis
+        path: application_context.json
+
+  build:
+    needs: [test]
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: 'npm'
+    - run: npm ci
+    - run: npm run build
+    - uses: actions/upload-artifact@v3
+      with:
+        name: build-files
+        path: build/
+
+  deploy-preview:
+    needs: [build, context-analysis]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v3
+      with:
+        name: build-files
+        path: build/
+    - name: Deploy to Netlify Preview
+      run: |
+        npx netlify-cli deploy --dir=build --json > deploy-output.json
+        echo "NETLIFY_URL=$(cat deploy-output.json | jq -r '.deploy_url')" >> $GITHUB_ENV
+    - name: Comment PR
+      uses: actions/github-script@v7
+      with:
+        script: |
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: ` Preview deployment ready!
+            
+            **Preview URL:** ${{ env.NETLIFY_URL }}
+            **Context Analysis:** Available in artifacts
+            **Jira Ticket:** ${{ needs.extract-jira-info.outputs.jira-ticket || 'None found' }}`
+          });
+
+  deploy-production:
+    needs: [build, test, extract-jira-info]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/download-artifact@v3
+      with:
+        name: build-files
+        path: build/
+    - name: Deploy to Production
+      run: |
+        npx netlify-cli deploy --prod --dir=build
+        echo " Production deployment completed!"
+    - name: Update Jira ticket
+      if: needs.extract-jira-info.outputs.has-ticket == 'true'
+      run: |
+        echo "Would update Jira ticket: ${{ needs.extract-jira-info.outputs.jira-ticket }}"
+        # Actual Jira API call would go here
