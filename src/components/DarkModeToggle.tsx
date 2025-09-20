@@ -9,15 +9,6 @@ const DarkModeToggle: React.FC = () => {
   });
 
   useEffect(() => {
-    console.log("Component mounted, isDarkMode:", isDarkMode);
-    if (isDarkMode) {
-      document.body.classList.add("dark-mode");
-    } else {
-      document.body.classList.remove("dark-mode");
-    }
-  }, []);
-
-  useEffect(() => {
     console.log("State changed to:", isDarkMode);
     localStorage.setItem("darkMode", JSON.stringify(isDarkMode));
     if (isDarkMode) {
