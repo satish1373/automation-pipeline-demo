@@ -20,7 +20,7 @@ const DarkModeToggle: React.FC = () => {
     }
     
     console.log('State changed to:', isDarkMode);
-  }, [isDarkMode]); // Fixed: Added isDarkMode to dependency array
+  }, [isDarkMode]);
 
   const toggleDarkMode = () => {
     setIsDarkMode(!isDarkMode);
